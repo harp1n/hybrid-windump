@@ -4,8 +4,8 @@ Florian Berger
 ----------
 
 dumps the root window of an x-display into another window on another
-x-display. so you can work on a hybrid graphics card which
-doesnt have its own display.
+x-display. so you can work on a hybrid graphics card (e.g. nvidia optimus) 
+which doesnt have its own display.
 
 windump.c - as posted in hybrid-graphics-linux@lists.launchpad.net
 this is published as GPL, so everybody feel free to contribute or improve.
