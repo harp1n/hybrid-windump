@@ -1,6 +1,6 @@
 hybrid-windump 
 Florian Berger
-11.05.2011
+01.05.2011
 ----------
 
 dumps the root window of an x-display into another window on another
