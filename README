@@ -1,0 +1,27 @@
+hybrid-windump 
+Florian Berger
+11.05.2011
+----------
+
+dumps the root window of an x-display into another window on another
+x-display.
+
+windump.c - as posted in hybrid-graphics-linux@lists.launchpad.net
+this is published as GPL, so everybody feel free to contribute or improve.
+
+first of all install the latest nvidia driver from www.nvidia.com
+and set up a dual head xorg.conf with one screen configured with the
+proprietary nvidia driver (an exmaple xorg.conf is in this repository)
+the nvidia device had to be the primary device for me, otherwise it
+wouldnt work.
+
+the code is compiled by
+
+gcc -o windump windump.c -lX11 -lXext -lXtst
+
+and invoked by
+
+./windump :0.0 :0.1
+
+where :0.0 is the display of nvidia desktop and :0.1 is the display of the 
+intel desktop
