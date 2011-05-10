@@ -296,7 +296,7 @@ int main(int argc, char** argv)
             }
         }
         //printf("frame %d\n", frame++);
-        usleep(60000);
+        usleep(15000);
         if(!use_shm)
         {
             image = capture_root(sdpy, sscr);
