@@ -5,8 +5,7 @@
 #include <X11/Xutil.h>
 #include <X11/cursorfont.h>
 #include <X11/extensions/XShm.h>
-#include <X11/extensions/XTest.h>
-#include <X11/extensions/Xdamage.h>
+#include <X11/extensions/Xfixes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
@@ -260,7 +259,6 @@ int main(int argc, char** argv)
     {
         createShmImage(width, height, &xshm_sinfo, &xshm_tinfo, sdpy, tdpy, sscr, tscr, &simage, &timage);
     }
-    //~ int frame = 0;
     for(;;) {
         XEvent e;
         XNextEvent(tdpy, &e);
@@ -282,36 +280,6 @@ int main(int argc, char** argv)
     int xmouse, ymouse;
     while(1)
     {
-        {
-            XEvent e;
-            //long mask=ButtonPressMask|ButtonReleaseMask|MotionNotifyMask;
-            //while(XCheckWindowEvent(tdpy, twin, mask, &e)!=False)
-            while(XCheckTypedWindowEvent(tdpy, twin, ButtonPress, &e) != False ||
-                  XCheckTypedWindowEvent(tdpy, twin, ButtonRelease, &e) != False)
-            {
-                printf("button event\n");
-                if(emulate_events)
-                {
-                    e.xbutton.display = sdpy;
-                    e.xbutton.window = swin;
-                    e.xbutton.root = swin;
-                    e.xbutton.window = swin;
-                    e.xbutton.x_root = e.xbutton.x;
-                    e.xbutton.y_root = e.xbutton.y;
-                    //XSendEvent(sdpy, swin, True, mask, &e);
-                    XPutBackEvent(sdpy, &e);
-                    //XTestFakeMotionEvent(sdpy, sscr, e.xbutton.x, e.xbutton.y, 0);
-                    XTestFakeButtonEvent(sdpy, e.xbutton.button, (e.xbutton.type == ButtonPress), 0);
-                }
-            }
-            while(XCheckTypedWindowEvent(sdpy, swin, MotionNotify, &e) != False)
-            {
-                //printf("motion event\n");
-                xmouse = e.xbutton.x_root;
-                ymouse = e.xbutton.y_root;
-            }
-        }
-        //printf("frame %d\n", frame++);
         usleep(15000);
         if(!use_shm)
         {
@@ -321,11 +289,7 @@ int main(int argc, char** argv)
         }
         else
         {
-            //XShmAttach(sdpy, &xshm_sinfo);
             XShmGetImage(sdpy, swin, simage, 0, 0, AllPlanes);
-            //XShmAttach(sdpy, &xshm_tinfo);
-            //printf("simage: w:%d h:%d d:%d\n", simage->width, simage->height, simage->depth);
-            //printf("timage: w:%d h:%d d:%d\n", timage->width, timage->height, timage->depth);
             if(!emulate_events)
             {
                 Window rwin, cwin;
@@ -333,16 +297,12 @@ int main(int argc, char** argv)
                 unsigned int mask;
                 XQueryPointer(sdpy, swin, &rwin, &cwin, &xmouse, &ymouse, &x, &y, &mask);
                 XFixesCursorImage* cur = XFixesGetCursorImage(sdpy);
-                //~ drawMouse(timage, cur, xmouse + 1, ymouse + 1, 0x000000);
                 drawMouse(timage, cur, xmouse, ymouse);
             }
 
             XShmPutImage(tdpy, twin, tgc, timage, 0, 0, 0, 0, timage->width, timage->height, False);
-            //XPutImage(tdpy, twin, tgc, timage, 0, 0, 0, 0, timage->width, timage->height);
         }
-        //XFlush(sdpy);
         XFlush(tdpy);
-        //getchar();
     }
     return 0;
 }
