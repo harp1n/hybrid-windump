@@ -6,6 +6,7 @@
 #include <X11/cursorfont.h>
 #include <X11/extensions/XShm.h>
 #include <X11/extensions/XTest.h>
+#include <X11/extensions/Xdamage.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
@@ -186,32 +187,47 @@ void createShmImage(int w, int h, XShmSegmentInfo * sinfo, XShmSegmentInfo * tin
 
 // Clamp a value between a lower and upper bound, inclusive.
 #define CLAMP(x, l, u) ((x) < (l) ? (l) : ((x) > (u) ? (u) : (x)))
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
 
-void drawMouse(XImage * img, int xm, int ym, unsigned int color)
+void drawMouse(XImage* img, XFixesCursorImage* cur, int xm, int ym)
 {
-    int x, y, x1, y1, x2, y2, w, h;
+    int x, y, x1, y1, x2, y2, w, h, cw, ch;
 
     unsigned int* data = (unsigned int*)(img->data);
 
     w = img->width;
     h = img->height;
+    cw = cur->width;
+    ch = cur->height;
+    xm -= cur->xhot;
+    ym -= cur->yhot;
 
     y = CLAMP(ym, 0, h - 1);
-    x1 = CLAMP(xm - 5, 0, w);
-    x2 = CLAMP(xm + 6, 0, w);
-    for(x = x1; x < x2; ++x)
+    x1 = MAX(-xm, 0);
+    x2 = MIN(w - xm, cw);
+    y1 = MAX(-ym, 0);
+    y2 = MIN(h - ym, ch);
+    for(y = y1; y < y2; ++y)
     {
-        data[y * w + x] = color;
-    }
+        for(x = x1; x < x2; ++x)
+        {
+            // Alpha blending, ugly
+            // FIXME: use the XImage RGB masks instead of hard coded colour byte order.
+            unsigned long cursor_pixel = cur->pixels[y * cw + x];
+            unsigned int image_pixel = data[(ym + y) * w + xm + x];
 
-    x = CLAMP(xm, 0, w - 1);
-    y1 = CLAMP(ym - 5, 0, h);
-    y2 = CLAMP(ym + 6, 0, h);
-    for (y = y1; y < y2; ++y)
-    {
-        data[y * w + x] = color;
+            unsigned char alpha = ((cursor_pixel & 0xFF000000) >> 24);
+            unsigned char alpha_inv = 0xFF - alpha;
+            unsigned char r = (((cursor_pixel & 0x00FF0000) >> 16) * alpha + ((image_pixel & 0x00FF0000) >> 16) * alpha_inv) >> 8;
+            unsigned char g = (((cursor_pixel & 0x0000FF00) >> 8) * alpha + ((image_pixel & 0x0000FF00) >> 8) * alpha_inv) >> 8;
+            unsigned char b = (((cursor_pixel & 0x000000FF) >> 0) * alpha + ((image_pixel & 0x000000FF) >> 0) * alpha_inv) >> 8;
+            //~ unsigned char g = ((cursor_pixel & 0x0000FF00) >> 8);
+            //~ unsigned char b = ((cursor_pixel & 0x000000FF) >> 0);
+            //~ unsigned int color = cur->pixels[y * cw + x] * alpha + data[(ym + y) * w + xm + x] * (0xFF - alpha);
+            data[(ym + y) * w + xm + x] = (r << 16) | (g << 8) | (b << 0);
+        }
     }
-
 }
 
 int main(int argc, char** argv)
@@ -316,8 +332,9 @@ int main(int argc, char** argv)
                 int xmouse, ymouse, x, y;
                 unsigned int mask;
                 XQueryPointer(sdpy, swin, &rwin, &cwin, &xmouse, &ymouse, &x, &y, &mask);
-                drawMouse(timage, xmouse + 1, ymouse + 1, 0x000000);
-                drawMouse(timage, xmouse, ymouse, 0xFFFFFF);
+                XFixesCursorImage* cur = XFixesGetCursorImage(sdpy);
+                //~ drawMouse(timage, cur, xmouse + 1, ymouse + 1, 0x000000);
+                drawMouse(timage, cur, xmouse, ymouse);
             }
 
             XShmPutImage(tdpy, twin, tgc, timage, 0, 0, 0, 0, timage->width, timage->height, False);
