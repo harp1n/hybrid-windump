@@ -12,6 +12,16 @@
 
 int format = ZPixmap;
 
+// used for hiding the border
+typedef struct
+{
+    unsigned long   flags;
+    unsigned long   functions;
+    unsigned long   decorations;
+    long            inputMode;
+    unsigned long   status;
+} Hints;
+
 XImage *
 capture_root(Display * dpy, int screen)
 {
@@ -243,6 +253,15 @@ int main(int argc, char** argv)
     }
 
     int emulate_events=0;
+
+    // begin Hide window border
+    Hints   hints;
+    Atom    property;
+    hints.flags = 2;        // Specify that we're changing the window decorations.
+    hints.decorations = 0;  // 0 (false) means that window decorations should go bye-bye.
+    property = XInternAtom(tdpy, "_MOTIF_WM_HINTS", True);
+    XChangeProperty(tdpy, twin, property, property, 32, PropModeReplace, (unsigned char *) &hints, 5);
+    // end Hide window border
 
     int xmouse, ymouse;
     while(1)
