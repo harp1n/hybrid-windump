@@ -298,6 +298,7 @@ int main(int argc, char** argv)
                 XQueryPointer(sdpy, swin, &rwin, &cwin, &xmouse, &ymouse, &x, &y, &mask);
                 XFixesCursorImage* cur = XFixesGetCursorImage(sdpy);
                 drawMouse(timage, cur, xmouse, ymouse);
+                XFree(cur);
             }
 
             XShmPutImage(tdpy, twin, tgc, timage, 0, 0, 0, 0, timage->width, timage->height, False);
