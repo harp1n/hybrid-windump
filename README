@@ -12,17 +12,32 @@ this is published as GPL, so everybody feel free to contribute or improve.
 
 first of all install the latest nvidia driver from www.nvidia.com
 and set up a dual head xorg.conf with one screen configured with the
-proprietary nvidia driver (an exmaple xorg.conf is in this repository)
+proprietary nvidia driver (an exmaple xorg.conf is in this repository - 
+replace pci bus id's and resolution by that of your system)
 the nvidia device had to be the primary device for me, otherwise it
-wouldnt work.
+wouldnt work (update: meanwhile its possible to use secondary with 
+latest nvidia drivers).
 
-the code is compiled by
+build windump by typing:
 
-gcc -o windump windump.c -lX11 -lXext -lXtst
+make
 
-and invoked by
+and invoked it by e.g.
 
 ./windump :0.0 :0.1
 
 where :0.0 is the display of nvidia desktop and :0.1 is the display of the 
 intel desktop
+
+
+more exact usage:
+-----------------
+
+windump [srcdpy [destdpy]] [-s srcdpy] [-t destdpy] [-d delay_us] [-w windowdec] [-a autohide] [-i srcwinID] [srcdpy [destdpy]]
+
+srcdpy ...... source display to capture                            [default: :0.0]
+destdpy ..... target display where to display the captured screen  [default: :0.1]
+delay_us .... time delay between frame captures in mycroseconds    [default: 15000]
+windowdec ... enable window decoration                             [default: 0]
+autohide .... auto hide captured screen                            [default: 1]
+srcwinID .... window ID (in hex) to be captured if not root window [default: root window]

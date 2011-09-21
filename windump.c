@@ -1,16 +1,55 @@
+// gcc -O3 -o windump windump.c -lX11 -lXfixes -lXext -lXtst
+// gcc -O3 -o windump windump.c -lX11 -lXfixes -lXext
+
 #include <sys/ipc.h>
 #include <sys/shm.h>
 #include <X11/Xos.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
+#include <X11/Xatom.h>
 #include <X11/cursorfont.h>
 #include <X11/extensions/XShm.h>
+#ifdef USE_XTEST
 #include <X11/extensions/XTest.h>
+#endif
+#include <X11/extensions/Xfixes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
+#include <unistd.h>
 
 int format = ZPixmap;
+typedef struct
+{
+    unsigned   flags;
+    unsigned   functions;
+    unsigned   decorations;
+    int            inputMode;
+    unsigned   status;
+} Hints;
+
+
+
+double time_s()
+// gives back time in microseconds
+{
+#ifndef _WIN32
+    struct timeval tv;
+    struct timezone tz;
+    tz.tz_minuteswest = 0;
+    tz.tz_dsttime     = 0;
+    gettimeofday(&tv,&tz);
+    return ( (double)tv.tv_sec+(double)tv.tv_usec*1E-6 );
+#else
+	union{
+		long int ns100;
+		FILETIME ft;
+	} now;
+	GetSystemTimeAsFileTime(&now.ft);
+    return( ((double)now.ns100)*1.0E-7 );
+#endif
+}
+
 
 XImage *
 CaptRoot(Display * dpy, int screen)
@@ -109,8 +148,12 @@ CaptRoot(Display * dpy, int screen)
     return image;
 }
 
-Window CreateWindow(Display * dpy, int screen, int width, int height)
+Window CreateWindow(Display * dpy, int screen, int width, int height, int windowdec)
 {
+    XSetWindowAttributes winAttr;
+    winAttr.override_redirect=((windowdec==0)?True:False);
+
+    //printf("w=%d h=%d dpy=%p scr=%d\n",width,height,dpy,screen);
     Window win = 0;
     win = XCreateWindow(dpy, RootWindow(dpy, screen),
                         0, 0, width, height,
@@ -119,8 +162,16 @@ Window CreateWindow(Display * dpy, int screen, int width, int height)
                         InputOutput,
                         DefaultVisual(dpy, screen),
                         //CWBorderPixel|CWBackPixel|CWColormap|CWEventMask|CWBitGravity,
-                        0,
-                        0);
+                        CWOverrideRedirect, &winAttr);
+
+    XSizeHints sizeHints;
+    sizeHints.flags = PPosition | PSize;
+    sizeHints.x = 0;
+    sizeHints.y = 0;
+    sizeHints.width = width;
+    sizeHints.height = height;
+
+    XSetNormalHints(dpy,win,&sizeHints);
 
     XSelectInput(dpy, win, StructureNotifyMask|ButtonPressMask|ButtonReleaseMask);
 
@@ -138,10 +189,7 @@ void DrawImage(Display * dpy, Window win, XImage * image)
             XGCValues gc_val;
             gc = XCreateGC (dpy, win, GCForeground|GCBackground, &gc_val);
         }
-        /*for(i=0;i<100;i++)
-        {
-            image->data*/
-        XPutImage (dpy, win, gc, image, 0, 0, 0, 0, 1024, 768);
+        XPutImage (dpy, win, gc, image, 0, 0, 0, 0, image->width, image->height);
     }
 }
 
@@ -149,8 +197,9 @@ void createShmImage(int w, int h, XShmSegmentInfo * sinfo, XShmSegmentInfo * tin
 {
     sinfo->shmid=tinfo->shmid=shmget(IPC_PRIVATE,w*h*sizeof(unsigned),IPC_CREAT|0666 );
     sinfo->shmaddr=tinfo->shmaddr=(char*)shmat(sinfo->shmid,0,0);
-    sinfo->readOnly=tinfo->readOnly=False;
-    printf("%d %d\n",DefaultDepth(sdpy,sscr),DefaultDepth(tdpy,tscr));
+    sinfo->readOnly=True;
+    tinfo->readOnly=False;
+    //printf("%d %d\n",DefaultDepth(sdpy,sscr),DefaultDepth(tdpy,tscr));
     *simage = XShmCreateImage(
                               sdpy, DefaultVisual(sdpy,sscr), DefaultDepth(sdpy,sscr),
                               ZPixmap/*format*/,
@@ -188,28 +237,181 @@ void drawMouse(XImage * img, int xm, int ym, int color)
     y1=ym-5; if(y1<0) y1=0; if(y1>h) y1=h;
     y2=ym+6; if(y2<0) y2=0; if(y2>h) y2=h;
     for(y=y1;y<y2;y++) data[y*w+x] = color;
+}
 
+// Clamp a value between a lower and upper bound, inclusive.
+#define CLAMP(x, l, u) ((x) < (l) ? (l) : ((x) > (u) ? (u) : (x)))
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+
+void drawMouseImage(XImage* img, XFixesCursorImage* cur, int xm, int ym)
+{
+    int x, y, x1, y1, x2, y2, w, h, cw, ch;
+
+    unsigned int* data = (unsigned int*)(img->data);
+
+    w = img->width;
+    h = img->height;
+    cw = cur->width;
+    ch = cur->height;
+    xm -= cur->xhot;
+    ym -= cur->yhot;
+
+    y = CLAMP(ym, 0, h - 1);
+    x1 = MAX(-xm, 0);
+    x2 = MIN(w - xm, cw);
+    y1 = MAX(-ym, 0);
+    y2 = MIN(h - ym, ch);
+    for(y = y1; y < y2; ++y)
+    {
+        for(x = x1; x < x2; ++x)
+        {
+            // Alpha blending, ugly
+            // FIXME: use the XImage RGB masks instead of hard coded colour byte order.
+            unsigned long cursor_pixel = cur->pixels[y * cw + x];
+            unsigned int image_pixel = data[(ym + y) * w + xm + x];
+
+            unsigned char alpha = ((cursor_pixel & 0xFF000000) >> 24);
+            unsigned char alpha_inv = 0xFF - alpha;
+            unsigned char r = (((cursor_pixel & 0x00FF0000) >> 16) * alpha + ((image_pixel & 0x00FF0000) >> 16) * alpha_inv) >> 8;
+            unsigned char g = (((cursor_pixel & 0x0000FF00) >> 8) * alpha + ((image_pixel & 0x0000FF00) >> 8) * alpha_inv) >> 8;
+            unsigned char b = (((cursor_pixel & 0x000000FF) >> 0) * alpha + ((image_pixel & 0x000000FF) >> 0) * alpha_inv) >> 8;
+            //~ unsigned char g = ((cursor_pixel & 0x0000FF00) >> 8);
+            //~ unsigned char b = ((cursor_pixel & 0x000000FF) >> 0);
+            //~ unsigned int color = cur->pixels[y * cw + x] * alpha + data[(ym + y) * w + xm + x] * (0xFF - alpha);
+            data[(ym + y) * w + xm + x] = (r << 16) | (g << 8) | (b << 0);
+        }
+    }
+}
+
+modifyMouseCursor(XFixesCursorImage* cur)
+{
+    int x,y;
+    for( y=0 ; y<cur->height ; y++ )
+    {
+        for( x=0 ; x<cur->width ; x++ )
+        {
+            cur->pixels[y * cur->width + x]&=0xAFFF0000;
+        }
+    }
+}
+
+
+void emulateEvents(Display * sdpy, Window swin, Display * tdpy, Window twin)
+{
+#ifdef USE_XTEST
+    int xmouse, ymouse;
+            XEvent e;
+
+            //long mask=ButtonPressMask|ButtonReleaseMask|MotionNotifyMask;
+            //while(XCheckWindowEvent(tdpy, twin, mask, &e)!=False)
+            //while( XCheckTypedWindowEvent(tdpy, twin, ButtonPress,   &e)!=False ) XPutBackEvent( sdpy, &e );
+            //while( XCheckTypedWindowEvent(tdpy, twin, ButtonRelease, &e)!=False ) XPutBackEvent( sdpy, &e );
+
+            while(XCheckTypedWindowEvent(tdpy, twin, ButtonPress,   &e)!=False ||
+                  XCheckTypedWindowEvent(tdpy, twin, ButtonRelease, &e)!=False )
+            {
+                printf("button event\n");
+                //if(emulate_events)
+                {
+                    /*e.xbutton.display=sdpy;
+                    e.xbutton.window=swin;
+                    e.xbutton.root=swin;
+                    e.xbutton.window=swin;
+                    e.xbutton.x_root=e.xbutton.x;
+                    e.xbutton.y_root=e.xbutton.y;*/
+                    //XSendEvent( sdpy, swin, True, mask, &e );
+                    XPutBackEvent( sdpy, &e );
+                    //XTestFakeMotionEvent(sdpy,sscr,e.xbutton.x,e.xbutton.y,0);
+                    XTestFakeButtonEvent(sdpy,e.xbutton.button,e.xbutton.type==ButtonPress,0);
+                }
+            }
+            while(XCheckTypedWindowEvent(sdpy, swin, MotionNotify, &e)!=False)
+            {
+                //XPutBackEvent( sdpy, &e );
+                //printf("motion event\n");
+                xmouse=e.xbutton.x_root;
+                ymouse=e.xbutton.y_root;
+            }
+#endif
+}
+
+void printUsage()
+{
+        printf("\nusage: windump [srcdpy [destdpy]] [-s srcdpy] [-t destdpy] [-d delay_us] [-w windowdec] [-a autohide] [-i srcwinID] [srcdpy [destdpy]]\n");
+        printf("\n");
+        printf("       srcdpy ...... source display to capture\n");
+        printf("                       [default: :0.0]\n");
+        printf("       destdpy ..... target display where to display the captured screen\n");
+        printf("                       [default: :0.1]\n");
+        printf("       delay_us .... time delay between frame captures in mycroseconds\n");
+        printf("                       [default: 15000]\n");
+        printf("       windowdec ... enable window decoration\n");
+        printf("                       [default: 0]\n");
+        printf("       autohide .... auto hide captured screen\n");
+        printf("                       [default: 1]\n");
+        printf("       srcwinID .... window ID (in hex) to be captured if not root window\n");
+        printf("                       [default: root window]\n");
+        printf("\n");
 }
 
 main(int argc, char * argv [])
 {
-    Display * sdpy = XOpenDisplay(argv[1]);
-    Display * tdpy = XOpenDisplay(argv[2]);
+    int opt;
+    if (argc<=1)
+    {
+        //printHelp();
+    }
+    char * sdpyName = ":0.0";
+    char * tdpyName = ":0.1";
+
+    Window swin=0;
+
+    int delay_us=15000;
+    int windowdec=0;
+    int autohide=1;
+#define MYBOOL(x) ((int)((x)[0]=='y'||(x)[0]=='1'||(x)[0]=='t'))
+    if ( argc>1 && argv[1][0]!='-' ) {
+        sdpyName=argv[1]; argv[1]=argv[0]; argv=&(argv[1]); argc--;
+        if ( argc>1 && argv[1][0]!='-' ) {
+            tdpyName=argv[1]; argv[1]=argv[0]; argv=&(argv[1]); argc--;
+        }
+    }
+    while ((opt = getopt(argc, argv, "s:t:d:w:a:i:")) != -1) {
+        switch (opt) {
+            case 's': sdpyName=strdup(optarg); break;
+            case 't': tdpyName=strdup(optarg); break;
+            case 'd': delay_us=atoi(optarg); break;
+            case 'w': windowdec=MYBOOL(optarg); break;
+            case 'a': autohide=MYBOOL(optarg); break;
+            case 'i': sscanf(optarg,"%x",(unsigned int *)&swin); break;
+            default: printUsage(); exit(1); break;
+        }
+    }
+
+    if (optind  <argc) sdpyName=argv[optind];
+    if (optind+1<argc) tdpyName=argv[optind+1];
+    //if (argc>2) tdpyName=argv[2];
+    Display * sdpy = XOpenDisplay(sdpyName);
+    Display * tdpy = XOpenDisplay(tdpyName);
     int sscr = XDefaultScreen(sdpy);
     int tscr = XDefaultScreen(tdpy);
     GC tgc = DefaultGC(tdpy,tscr);
-    Window swin=RootWindow (sdpy,sscr);
+    if(swin==0) swin=RootWindow (sdpy,sscr);
+    //if (argc>3) swin=atoi(argv[3]);
     int width, height, dummy;
     XGetGeometry(sdpy, swin, (Window *)&dummy, &dummy, &dummy, &width, &height, &dummy, &dummy);
-    Window twin=CreateWindow(tdpy,tscr,width,height);
+    Window twin=CreateWindow(tdpy,tscr,width,height,windowdec);
     XSelectInput(sdpy, swin, PointerMotionMask);
     XImage * image;
     XImage * simage;
     XImage * timage;
     int use_shm=1;
+    int use_xv=0;
     XShmSegmentInfo xshm_sinfo;
     XShmSegmentInfo xshm_tinfo;
     if(use_shm) createShmImage(width,height,&xshm_sinfo,&xshm_tinfo,sdpy,tdpy,sscr,tscr,&simage,&timage);
+
     int frame=0;
     for(;;) {
         XEvent e;
@@ -220,67 +422,95 @@ main(int argc, char * argv [])
 
     int emulate_events=0;
 
-    int xmouse, ymouse;
+#if 1
+    Hints   hints;
+    Atom    property;
+    hints.flags = 2;        // Specify that we're changing the window decorations.
+    hints.functions=0;
+    hints.decorations = 0;  // 0 (false) means that window decorations should go bye-bye.
+    property = XInternAtom(tdpy, "_MOTIF_WM_HINTS", True);
+    XChangeProperty(tdpy, twin, property, property, 32, PropModeReplace, (unsigned char *) &hints, 5);
+
+
+    XSetWindowAttributes attributes;
+
+    //attributes.override_redirect = True;
+    //XChangeWindowAttributes(tdpy, twin,
+    //                        CWOverrideRedirect, &attributes);
+#endif
+
+    double t;
     while(1)
     {
+
+        if(emulate_events) emulateEvents(sdpy,swin,tdpy,twin);
+
+        //{ static double t=0.0; if (t==0.0) t=time_s(); printf("fps %f\n", 1.0/(time_s()-t)); t=time_s(); }
+
+        //t=time_s();
+        usleep(delay_us);
+        //printf("sleep: %f sec\n", time_s()-t);
+
+        Window rwin,cwin;
+        int xmouse,ymouse,x,y,mask;
+        XQueryPointer(sdpy,swin,&rwin,&cwin,&xmouse,&ymouse,&x,&y,&mask);
+        if( (x==xmouse && y==ymouse) || !autohide )
         {
-            XEvent e;
-            //long mask=ButtonPressMask|ButtonReleaseMask|MotionNotifyMask;
-            //while(XCheckWindowEvent(tdpy, twin, mask, &e)!=False)
-            while(XCheckTypedWindowEvent(tdpy, twin, ButtonPress, &e)!=False ||
-                  XCheckTypedWindowEvent(tdpy, twin, ButtonRelease, &e)!=False)
+            if(autohide)
             {
-                printf("button event\n");
-                if(emulate_events)
+                XResizeWindow(tdpy,twin,width,height);
+                XRaiseWindow(tdpy,twin);
+            }
+
+            if(use_xv)
+            {
+                //XvShmGetImage (sdpy, swin, simage, 0, 0, AllPlanes);
+            }
+            else if(use_shm)
+            {
+                int use_damage=0;
+                if(use_damage)
                 {
-                    e.xbutton.display=sdpy;
-                    e.xbutton.window=swin;
-                    e.xbutton.root=swin;
-                    e.xbutton.window=swin;
-                    e.xbutton.x_root=e.xbutton.x;
-                    e.xbutton.y_root=e.xbutton.y;
-                    //XSendEvent( sdpy, swin, True, mask, &e );
-                    XPutBackEvent( sdpy, &e );
-                    //XTestFakeMotionEvent(sdpy,sscr,e.xbutton.x,e.xbutton.y,0);
-                    XTestFakeButtonEvent(sdpy,e.xbutton.button,e.xbutton.type==ButtonPress,0);
+                }
+                else {
+                    //t=time_s();
+                    XShmGetImage (sdpy, swin, simage, 0, 0, AllPlanes);
+                    //printf("get: %f sec\n", time_s()-t);
+
+                    //drawMouse(timage, xmouse+1, ymouse+1,0x000000);
+                    //drawMouse(timage, xmouse, ymouse,0xFFFFFF);
+                    XFixesCursorImage* cur = XFixesGetCursorImage(sdpy);
+                    //modifyMouseCursor(cur);
+                    drawMouseImage(timage, cur, xmouse, ymouse);
+                    XFree(cur);
+
+                    //t=time_s();
+                    XShmPutImage (tdpy, twin, tgc, timage, 0, 0, 0, 0, timage->width, timage->height, False);
+                    //printf("put: %f sec\n", time_s()-t);
                 }
             }
-            while(XCheckTypedWindowEvent(sdpy, swin, MotionNotify, &e)!=False)
+            else
             {
-                //printf("motion event\n");
-                xmouse=e.xbutton.x_root;
-                ymouse=e.xbutton.y_root;
+                //t=time_s();
+                image=CaptRoot(sdpy,sscr);
+                //printf("get: %f sec\n", time_s()-t);
+
+                //t=time_s();
+                DrawImage(tdpy,twin,image);
+                XDestroyImage(image);
+                //printf("put: %f sec\n", time_s()-t);
             }
-        }
-        //printf("frame %d\n", frame++);
-        usleep(60000);
-        if(!use_shm)
-        {
-            image=CaptRoot(sdpy,sscr);
-            DrawImage(tdpy,twin,image);
-            XDestroyImage(image);
         }
         else
         {
-//            XShmAttach(sdpy, &xshm_sinfo);
-            XShmGetImage (sdpy, swin, simage, 0, 0, AllPlanes);
-//            XShmAttach(sdpy, &xshm_tinfo);
-            //printf("simage: w:%d h:%d d:%d\n",simage->width, simage->height, simage->depth);
-            //printf("timage: w:%d h:%d d:%d\n",timage->width, timage->height, timage->depth);
-            if(!emulate_events)
+            if(autohide)
             {
-                Window rwin,cwin;
-                int xmouse,ymouse,x,y,mask;
-                XQueryPointer(sdpy,swin,&rwin,&cwin,&xmouse,&ymouse,&x,&y,&mask);
-                drawMouse(timage, xmouse+1, ymouse+1,0x000000);
-                drawMouse(timage, xmouse, ymouse,0xFFFFFF);
+                XResizeWindow(tdpy,twin,1,1);
             }
-
-            XShmPutImage (tdpy, twin, tgc, timage, 0, 0, 0, 0, timage->width, timage->height, False);
-            //XPutImage (tdpy, twin, tgc, timage, 0, 0, 0, 0, timage->width, timage->height);
         }
-        //XFlush(sdpy);
-        XFlush(tdpy);
-//        getchar();
+        //t=time_s();
+        //XFlush(tdpy);
+        XSync(tdpy,False);
+        //printf("flush: %f sec\n", time_s()-t);
     }
 }
