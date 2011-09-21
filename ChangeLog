@@ -1,0 +1,8 @@
+
+2011-09-21
+ * adopted some changes from gebart (mouse cursor, Makefile)
+ * auto hide when mouse is not on captured screen
+ * automatic desktop size
+ * no window decorations
+ * commandline options
+ 
