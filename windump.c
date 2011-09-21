@@ -509,8 +509,8 @@ main(int argc, char * argv [])
             }
         }
         //t=time_s();
-        //XFlush(tdpy);
-        XSync(tdpy,False);
+        XFlush(tdpy);
+        //XSync(tdpy,False);
         //printf("flush: %f sec\n", time_s()-t);
     }
 }
