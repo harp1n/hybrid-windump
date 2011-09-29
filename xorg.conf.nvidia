@@ -19,6 +19,7 @@ EndSection
 #EndSection
 
 Section "Files"
+    ModulePath "/usr/lib/nvidia-current/xorg,/usr/lib/xorg/modules"
 EndSection
 
 Section "InputDevice"
