@@ -197,7 +197,7 @@ void createShmImage(int w, int h, XShmSegmentInfo * sinfo, XShmSegmentInfo * tin
 {
     sinfo->shmid=tinfo->shmid=shmget(IPC_PRIVATE,w*h*sizeof(unsigned),IPC_CREAT|0666 );
     sinfo->shmaddr=tinfo->shmaddr=(char*)shmat(sinfo->shmid,0,0);
-    sinfo->readOnly=True;
+    sinfo->readOnly=False;
     tinfo->readOnly=False;
     //printf("%d %d\n",DefaultDepth(sdpy,sscr),DefaultDepth(tdpy,tscr));
     *simage = XShmCreateImage(
