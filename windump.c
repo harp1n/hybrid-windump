@@ -396,6 +396,12 @@ main(int argc, char * argv [])
     Display * tdpy = XOpenDisplay(tdpyName);
     int sscr = XDefaultScreen(sdpy);
     int tscr = XDefaultScreen(tdpy);
+    Screen * tscrS = DefaultScreenOfDisplay( tdpy );
+    Screen * sscrS = DefaultScreenOfDisplay( sdpy );
+    int twidth = tscrS->width;
+    int theight = tscrS->height;
+    int swidth = sscrS->width;
+    int sheight = sscrS->height;
     GC tgc = DefaultGC(tdpy,tscr);
     if(swin==0) swin=RootWindow (sdpy,sscr);
     //if (argc>3) swin=atoi(argv[3]);
@@ -440,6 +446,8 @@ main(int argc, char * argv [])
 #endif
 
     double t;
+    int xoffs=0;
+    int yoffs=0;
     while(1)
     {
 
@@ -473,8 +481,14 @@ main(int argc, char * argv [])
                 {
                 }
                 else {
+                    // FIXME: only do XShmGetImage of smaller size (not full window of twin is smaller) !!
+                    //printf("twidth=%d , theight=%d\n",twidth,theight);
+                    if(xoffs<xmouse-twidth) xoffs=xmouse-twidth;
+                    if(xoffs>xmouse) xoffs=xmouse;
+                    if(yoffs<ymouse-theight) yoffs=ymouse-theight;
+                    if(yoffs>ymouse) yoffs=ymouse;
                     //t=time_s();
-                    XShmGetImage (sdpy, swin, simage, 0, 0, AllPlanes);
+                    XShmGetImage (sdpy, swin, simage, 0,0, AllPlanes);
                     //printf("get: %f sec\n", time_s()-t);
 
                     //drawMouse(timage, xmouse+1, ymouse+1,0x000000);
@@ -485,7 +499,9 @@ main(int argc, char * argv [])
                     XFree(cur);
 
                     //t=time_s();
-                    XShmPutImage (tdpy, twin, tgc, timage, 0, 0, 0, 0, timage->width, timage->height, False);
+                    //XShmPutImage (tdpy, twin, tgc, timage, 0, 0, 0, 0, timage->width, timage->height, False);
+#define MYMIN(a,b) (((a)<(b))?(a):(b))
+                    XShmPutImage (tdpy, twin, tgc, timage, xoffs, yoffs,0,0, MYMIN(twidth,swidth), MYMIN(theight,sheight), False);
                     //printf("put: %f sec\n", time_s()-t);
                 }
             }
@@ -510,6 +526,7 @@ main(int argc, char * argv [])
         }
         //t=time_s();
         XFlush(tdpy);
+
         //XSync(tdpy,False);
         //printf("flush: %f sec\n", time_s()-t);
     }

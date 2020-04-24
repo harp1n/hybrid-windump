@@ -4,8 +4,8 @@ SOURCES=windump.c
 OBJS=$(SOURCES:.c=.o)
 EXECUTABLE=windump
 OPTIMIZE=2
-#DEBUG=-ggdb3
-DEBUG=
+DEBUG=-ggdb3
+#DEBUG=
 CFLAGS=-O$(OPTIMIZE) $(DEBUG) -std=gnu99 -pedantic -Wall -Wextra
 LDFLAGS=$(DEBUG) -Wl,-O$(OPTIMIZE) -Wall -Wextra -Werror
 
