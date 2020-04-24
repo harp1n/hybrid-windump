@@ -5,4 +5,7 @@
  * automatic desktop size
  * no window decorations
  * commandline options
+
+2019-04-24
+ * fixed bug when src smaller than dst
  
